@@ -2,6 +2,15 @@
 
 Fast Lie algebra multiplication for all five exceptional algebras (G₂, F₄, E₆, E₇, E₈) using sparse structure constants with algebraic error control. Includes a differentiable PyTorch kernel for equivariant neural networks.
 
+<div align="center">
+
+$$z_k \;=\; \Pi^{h^2}_\varphi \;\frac{1}{2} \!\!\!\sum_{(i,\,j,\,k)\,\in\, \mathcal{F}(\mathfrak{g})} \!\!\! x_i \; y_j \; f_{ij}^{\;k} \;, \qquad 3 \notin \lbrace \deg C_p(\mathfrak{g}) \rbrace \;\;\forall\; \mathfrak{g} \in \lbrace G_2,\, F_4,\, E_6,\, E_7,\, E_8 \rbrace$$
+
+</div>
+
+> **Left**: the computation — sparse gather-multiply-scatter over nonzero structure constants $\mathcal{F}(\mathfrak{g})$, with Z[φ] lattice projection $\Pi^{h^2}_\varphi$ for error control.
+> **Right**: why it works — no exceptional algebra has a degree-3 Casimir invariant, so the symmetric $d$-tensor vanishes and antisymmetric constants capture the full product.
+
 ## What It Does
 
 Replaces dense matrix multiplication with a **sparse gather-multiply-scatter** operation over precomputed structure constants. For E₈ this means 16,694 operations instead of 15.3 million — **913× fewer**. The same principle applies to all exceptional Lie algebras, verified to machine epsilon across all five.
