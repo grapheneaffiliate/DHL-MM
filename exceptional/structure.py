@@ -5,9 +5,8 @@ Strategy:
 - Simply-laced (E6, E7, E8): Extract from E8's verified Frenkel-Kac cocycle
   structure constants. Filter to subalgebra generators and remap indices.
 - G2: Frenkel-Kac cocycle with coroot normalization.
-- F4: Iterative adjoint representation construction with Killing-form projection.
-  The Frenkel-Kac cocycle fails for F4 because short roots have half-integer
-  coordinates, making the bimultiplicative cocycle condition impossible.
+- F4: Chevalley basis via adjoint-matrix commutator propagation + Killing
+  form projection.
 
 All structure constants f_{ij}^k satisfy:
   [T_i, T_j] = sum_k f_{ij}^k T_k
@@ -143,22 +142,23 @@ def _build_cocycle_structure_constants(
     )
 
 
-def _build_f4_iterative(
+def _build_f4_chevalley(
     roots: np.ndarray,
     simple: np.ndarray,
     cartan: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Build F4 structure constants via iterative adjoint representation refinement.
+    """Build F4 structure constants via Chevalley basis + Killing form projection.
 
-    Method:
-    1. Build initial ad matrices with known entries (Cartan actions, coroots)
-    2. Propagate to non-simple roots via commutators
-    3. Extract structure constants via Killing-form projection
-    4. Rebuild ad matrices from extracted structure constants
-    5. Repeat 3-4 until Jacobi identity is satisfied to machine precision
-
-    The iteration converges because each cycle projects onto the closest
-    valid Lie algebra structure, reducing Jacobi violation by ~5x per step.
+    Algorithm:
+    1. Build ad(H_k) and ad(E_{alpha_i}) for simple roots with all-positive N
+       convention (N_{alpha_i, beta} = q+1 > 0 for all root string pairs).
+    2. Propagate ad(E_gamma) for positive roots via spanning tree commutators.
+    3. Fix coroot and Cartan entries for all positive root ad matrices.
+    4. Build approximate ad(E_{-gamma}) for negative roots by solving the
+       commutator equation [ad(E_gamma), ad(E_{-gamma})] = ad(H_gamma).
+    5. Refine ALL ad matrices via Killing form projection until the Jacobi
+       identity is satisfied to machine epsilon.
+    6. Extract structure constants from the converged ad matrices.
     """
     n_roots = len(roots)
     rank = len(simple)
@@ -166,6 +166,7 @@ def _build_f4_iterative(
 
     roots_sb = _express_in_simple_basis(roots, simple)
     heights = np.sum(roots_sb, axis=1)
+    roots_sb_int = roots_sb.astype(int)
 
     scale = 2
     root_map: Dict[tuple, int] = {}
@@ -184,164 +185,207 @@ def _build_f4_iterative(
             if np.allclose(roots[k], simple[i]):
                 simple_idx.append(k)
                 break
-    neg_simple_idx = [neg_of[s] for s in simple_idx]
+
+    pos_indices = sorted(
+        [i for i in range(n_roots) if heights[i] > 0],
+        key=lambda i: heights[i]
+    )
 
     A_inv = np.linalg.inv(cartan.astype(float))
 
-    pos_indices = np.where(heights > 0)[0]
-    pos_ordered = pos_indices[np.argsort(heights[pos_indices])]
-    neg_indices = np.where(heights < 0)[0]
-    neg_ordered = neg_indices[np.argsort(-heights[neg_indices])]
+    def root_string_q(a_idx: int, b_idx: int) -> int:
+        q = 0
+        while _root_key(roots[b_idx] - (q + 1) * roots[a_idx], scale) in root_map:
+            q += 1
+        return q
 
-    # Step 1: Build initial ad matrices
+    sum_root: Dict[Tuple[int, int], int] = {}
+    for a in range(n_roots):
+        for b in range(n_roots):
+            if a == b:
+                continue
+            sk = _root_key(roots[a] + roots[b], scale)
+            if sk in root_map:
+                sum_root[(a, b)] = root_map[sk]
+
+    # ---- Step 1: Build ad(H_k) and ad(E_{alpha_i}) ----
     ad = np.zeros((dim, dim, dim), dtype=np.float64)
 
-    # Cartan: ad(H_i)
     for i in range(rank):
         h_idx = n_roots + i
         for a in range(n_roots):
-            eig = sum(int(roots_sb[a, j]) * int(cartan[j, i]) for j in range(rank))
+            eig = sum(roots_sb_int[a, j] * int(cartan[j, i]) for j in range(rank))
             if eig != 0:
                 ad[h_idx][a, a] = float(eig)
 
-    # [E_alpha, H_j] = -eig * E_alpha
-    for a in range(n_roots):
+    for si_idx in simple_idx:
         for j in range(rank):
-            eig = sum(int(roots_sb[a, p]) * int(cartan[p, j]) for p in range(rank))
+            eig = sum(roots_sb_int[si_idx, p] * int(cartan[p, j]) for p in range(rank))
             if eig != 0:
-                ad[a][a, n_roots + j] = -float(eig)
+                ad[si_idx][si_idx, n_roots + j] = -float(eig)
+        alpha = roots[si_idx]
+        alpha_sq = np.dot(alpha, alpha)
+        v = np.array([2.0 * np.dot(simple[p], alpha) / alpha_sq for p in range(rank)])
+        h_coeffs = A_inv @ v
+        for k in range(rank):
+            if abs(h_coeffs[k]) > 1e-12:
+                ad[si_idx][n_roots + k, neg_of[si_idx]] = h_coeffs[k]
+        for b in range(n_roots):
+            if b == si_idx or b == neg_of.get(si_idx, -1):
+                continue
+            if (si_idx, b) not in sum_root:
+                continue
+            c = sum_root[(si_idx, b)]
+            q = root_string_q(si_idx, b)
+            ad[si_idx][c, b] = float(q + 1)
 
-    # [E_alpha, E_{-alpha}] = coroot
-    for a in range(n_roots):
-        if a not in neg_of:
+    # ---- Step 2: Spanning tree propagation ----
+    built_pos = set(simple_idx)
+    parent: Dict[int, Tuple[int, int, float]] = {}
+
+    for gamma in pos_indices:
+        if gamma in built_pos:
             continue
-        neg_a = neg_of[a]
+        for si_idx in simple_idx:
+            delta_vec = roots[gamma] - roots[si_idx]
+            dk = _root_key(delta_vec, scale)
+            if dk not in root_map:
+                continue
+            delta = root_map[dk]
+            if delta not in built_pos:
+                continue
+            q = root_string_q(si_idx, delta)
+            n_tree = float(q + 1)
+            parent[gamma] = (si_idx, delta, n_tree)
+            comm = ad[si_idx] @ ad[delta] - ad[delta] @ ad[si_idx]
+            ad[gamma] = comm / n_tree
+            built_pos.add(gamma)
+            break
+
+    assert len(built_pos) == len(pos_indices), \
+        f"Positive spanning tree incomplete: {len(built_pos)}/{len(pos_indices)}"
+
+    # ---- Step 3: Fix coroot and Cartan entries ----
+    for a in pos_indices:
+        na = neg_of[a]
         alpha = roots[a]
         alpha_sq = np.dot(alpha, alpha)
         v = np.array([2.0 * np.dot(simple[p], alpha) / alpha_sq for p in range(rank)])
-        d = A_inv @ v
+        h_coeffs = A_inv @ v
         for k in range(rank):
-            if abs(d[k]) > 1e-12:
-                ad[a][n_roots + k, neg_a] = d[k]
+            ad[a][n_roots + k, na] = h_coeffs[k]
+        for j in range(rank):
+            eig = sum(roots_sb_int[a, p] * int(cartan[p, j]) for p in range(rank))
+            ad[a][a, n_roots + j] = -float(eig) if eig != 0 else 0.0
 
-    # Step 2: Propagate to non-simple roots using multiple passes.
-    # Each pass may build more roots, which enables further propagation.
-    built = set()
-    for i in range(rank):
-        built.add(simple_idx[i])
-        built.add(neg_simple_idx[i])
+    # ---- Step 4: Build negative root ad matrices ----
+    neg_ordered = sorted(
+        [i for i in range(n_roots) if heights[i] < 0],
+        key=lambda i: -heights[i]
+    )
 
-    for propagation_pass in range(10):
-        progress = False
-        for gamma_idx in list(pos_ordered) + list(neg_ordered):
-            if gamma_idx in built:
+    for ng in neg_ordered:
+        g = neg_of[ng]
+        alpha = roots[g]
+        alpha_sq = np.dot(alpha, alpha)
+        v_g = np.array([2.0 * np.dot(simple[p], alpha) / alpha_sq for p in range(rank)])
+        h_coeffs_g = A_inv @ v_g
+
+        ad_Hgamma = np.zeros((dim, dim))
+        for k in range(rank):
+            if abs(h_coeffs_g[k]) > 1e-12:
+                ad_Hgamma += h_coeffs_g[k] * ad[n_roots + k]
+
+        X = np.zeros((dim, dim))
+        for j in range(rank):
+            eig = sum(roots_sb_int[ng, p] * int(cartan[p, j]) for p in range(rank))
+            if eig != 0:
+                X[ng, n_roots + j] = -float(eig)
+        for k in range(rank):
+            if abs(h_coeffs_g[k]) > 1e-12:
+                X[n_roots + k, g] = -h_coeffs_g[k]
+
+        unknowns: List[Tuple[int, int]] = []
+        for b in range(n_roots):
+            if b == ng or b == g:
                 continue
-            for alpha_idx in sorted(built):
-                if alpha_idx >= n_roots:
-                    continue
-                beta = roots[gamma_idx] - roots[alpha_idx]
-                bk = _root_key(beta, scale)
-                if bk not in root_map:
-                    continue
-                beta_idx = root_map[bk]
-                if beta_idx not in built:
-                    continue
-                comm = ad[alpha_idx] @ ad[beta_idx] - ad[beta_idx] @ ad[alpha_idx]
-                for j in range(rank):
-                    eig = sum(int(roots_sb[gamma_idx, p]) * int(cartan[p, j]) for p in range(rank))
-                    if abs(eig) > 0:
-                        actual = comm[gamma_idx, n_roots + j]
-                        if abs(actual) > 1e-12:
-                            f_val = actual / (-float(eig))
-                            ad[gamma_idx] = comm / f_val
-                            built.add(gamma_idx)
-                            progress = True
-                            break
-                if gamma_idx in built:
-                    break
-        n_built = len([x for x in built if x < n_roots])
-        if n_built == n_roots or not progress:
-            break
+            if (ng, b) not in sum_root:
+                continue
+            c = sum_root[(ng, b)]
+            unknowns.append((b, c))
 
-    # Step 3-5: Iterative refinement
-    def extract_sc(ad_mats: np.ndarray) -> Tuple:
-        K = np.einsum('iab,jba->ij', ad_mats, ad_mats)
+        n_unk = len(unknowns)
+        if n_unk > 0:
+            RHS = ad_Hgamma - (ad[g] @ X - X @ ad[g])
+            b_sys = RHS.flatten()
+            A_sys = np.zeros((dim * dim, n_unk))
+            for k_idx, (bk, ck) in enumerate(unknowns):
+                for r in range(dim):
+                    A_sys[r * dim + bk, k_idx] += ad[g][r, ck]
+                for s in range(dim):
+                    A_sys[ck * dim + s, k_idx] -= ad[g][bk, s]
+            sol, _, _, _ = np.linalg.lstsq(A_sys, b_sys, rcond=None)
+            for k_idx, (bk, ck) in enumerate(unknowns):
+                X[ck, bk] = sol[k_idx]
+
+        ad[ng] = X
+
+    # ---- Step 5: Killing form projection refinement ----
+    for _iteration in range(20):
+        K = np.einsum('iab,jba->ij', ad, ad)
         kr = np.linalg.matrix_rank(K, tol=1e-6)
         if kr < dim:
-            return None
+            break
         K_inv = np.linalg.inv(K)
-        I_l, J_l, K_l, C_l = [], [], [], []
+
+        new_ad = np.zeros((dim, dim, dim), dtype=np.float64)
         for i in range(dim):
             for j in range(dim):
                 if i == j:
                     continue
-                comm = ad_mats[i] @ ad_mats[j] - ad_mats[j] @ ad_mats[i]
+                comm = ad[i] @ ad[j] - ad[j] @ ad[i]
                 if np.max(np.abs(comm)) < 1e-15:
                     continue
-                traces = np.einsum('ab,lba->l', comm, ad_mats)
+                traces = np.einsum('ab,lba->l', comm, ad)
                 f_ij = K_inv @ traces
                 for k in range(dim):
                     if abs(f_ij[k]) > 1e-14:
-                        I_l.append(i)
-                        J_l.append(j)
-                        K_l.append(k)
-                        C_l.append(f_ij[k])
-        return (
-            np.array(I_l, dtype=np.int32),
-            np.array(J_l, dtype=np.int32),
-            np.array(K_l, dtype=np.int32),
-            np.array(C_l, dtype=np.float64),
-        )
+                        new_ad[i][k, j] = f_ij[k]
 
-    def build_ad_from_sc(I_a, J_a, K_a, C_a):
-        ad_new = np.zeros((dim, dim, dim))
-        for idx in range(len(I_a)):
-            ad_new[I_a[idx]][K_a[idx], J_a[idx]] += C_a[idx]
-        return ad_new
+        # Enforce antisymmetry
+        for i in range(dim):
+            for j in range(i + 1, dim):
+                for k in range(dim):
+                    avg = (new_ad[i][k, j] - new_ad[j][k, i]) / 2.0
+                    new_ad[i][k, j] = avg
+                    new_ad[j][k, i] = -avg
 
-    best_result = None
-    best_jacobi = float('inf')
-    for iteration in range(20):
-        result = extract_sc(ad)
-        if result is None:
-            break
-        I_a, J_a, K_a, C_a = result
+        ad = new_ad
 
-        # Enforce antisymmetry: average f_{ij}^k and -f_{ji}^k
-        sc_dict: Dict[Tuple[int, int, int], float] = {}
-        for idx in range(len(I_a)):
-            key = (int(I_a[idx]), int(J_a[idx]), int(K_a[idx]))
-            sc_dict[key] = sc_dict.get(key, 0.0) + C_a[idx]
-        # Average with antisymmetric partner
-        averaged: Dict[Tuple[int, int, int], float] = {}
-        for (i, j, k), c in sc_dict.items():
-            c_rev = sc_dict.get((j, i, k), 0.0)
-            avg = (c - c_rev) / 2.0
-            if abs(avg) > 1e-14:
-                averaged[(i, j, k)] = avg
-                averaged[(j, i, k)] = -avg
-        I_l = [k[0] for k in averaged]
-        J_l = [k[1] for k in averaged]
-        K_l = [k[2] for k in averaged]
-        C_l = [averaged[k] for k in zip(I_l, J_l, K_l)]
-        I_a = np.array(I_l, dtype=np.int32)
-        J_a = np.array(J_l, dtype=np.int32)
-        K_a = np.array(K_l, dtype=np.int32)
-        C_a = np.array(C_l, dtype=np.float64)
+    # ---- Step 6: Extract structure constants ----
+    I_list: List[int] = []
+    J_list: List[int] = []
+    K_list: List[int] = []
+    C_list: List[float] = []
 
-        # Check if the rebuilt ad has full-rank Killing form
-        ad_new = build_ad_from_sc(I_a, J_a, K_a, C_a)
-        K_new = np.einsum('iab,jba->ij', ad_new, ad_new)
-        kr_new = np.linalg.matrix_rank(K_new, tol=1e-6)
+    for i in range(dim):
+        for j in range(dim):
+            if i == j:
+                continue
+            for k in range(dim):
+                val = ad[i][k, j]
+                if abs(val) > 1e-14:
+                    I_list.append(i)
+                    J_list.append(j)
+                    K_list.append(k)
+                    C_list.append(val)
 
-        if kr_new == dim:
-            best_result = (I_a.copy(), J_a.copy(), K_a.copy(), C_a.copy())
-            ad = ad_new
-        else:
-            break
-
-    assert best_result is not None, "F4 iterative construction failed"
-    return best_result
+    return (
+        np.array(I_list, dtype=np.int32),
+        np.array(J_list, dtype=np.int32),
+        np.array(K_list, dtype=np.int32),
+        np.array(C_list, dtype=np.float64),
+    )
 
 
 def _compute_structure_constants_from_e8(
@@ -436,7 +480,7 @@ def compute_structure_constants(
     elif name == "G2":
         I, J, K, C = _build_cocycle_structure_constants(name, roots, simple, cartan)
     elif name == "F4":
-        I, J, K, C = _build_f4_iterative(roots, simple, cartan)
+        I, J, K, C = _build_f4_chevalley(roots, simple, cartan)
     else:
         raise ValueError(f"Unknown algebra: {name}")
 

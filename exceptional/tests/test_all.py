@@ -63,15 +63,13 @@ def test_algebra(name: str) -> bool:
         all_pass = False
 
     # Test 3: Jacobi identity
-    # F4 uses iterative approximation; allow looser threshold
-    jacobi_tol = 1e-2 if name == "F4" else 1e-8
+    jacobi_tol = 1e-8
     t0 = time.time()
     jacobi_viol = alg.verify_jacobi(n_triples=200, seed=42)
     jacobi_time = time.time() - t0
     ok = jacobi_viol < jacobi_tol
     status = "PASS" if ok else "FAIL"
-    note = " (iterative approx)" if name == "F4" else ""
-    print(f"  [3] Jacobi identity (max violation={jacobi_viol:.2e}, 200 triples, {jacobi_time:.3f}s){note}: {status}")
+    print(f"  [3] Jacobi identity (max violation={jacobi_viol:.2e}, 200 triples, {jacobi_time:.3f}s): {status}")
     if not ok:
         all_pass = False
 
