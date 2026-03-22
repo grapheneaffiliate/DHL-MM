@@ -1,6 +1,14 @@
 # DHL-MM: Dynamic Hodge-Lie Matrix Multiplication
 
-Fast Lie algebra multiplication for all five exceptional algebras (G₂, F₄, E₆, E₇, E₈) using sparse structure constants with algebraic error control. Includes a differentiable PyTorch kernel for equivariant neural networks.
+[![PyPI](https://img.shields.io/pypi/v/dhl-mm)](https://pypi.org/project/dhl-mm/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/grapheneaffiliate/DHL-MM/blob/master/notebooks/e8_in_5_minutes.ipynb)
+
+Fast Lie algebra multiplication for all five exceptional algebras (G₂, F₄, E₆, E₇, E₈) using sparse structure constants with algebraic error control. Includes adjoint-equivariant PyTorch layers and PyTorch Geometric integration.
+
+```
+pip install dhl-mm
+```
 
 <div align="center">
 
@@ -11,9 +19,56 @@ $$z_k \;=\; \Pi^{h^2}_\varphi \;\frac{1}{2} \!\!\!\sum_{(i,\,j,\,k)\,\in\, \math
 > **Left**: the computation — sparse gather-multiply-scatter over nonzero structure constants $\mathcal{F}(\mathfrak{g})$, with Z[φ] lattice projection $\Pi^{h^2}_\varphi$ for error control.
 > **Right**: why it works — no exceptional algebra has a degree-3 Casimir invariant, so the symmetric $d$-tensor vanishes and antisymmetric constants capture the full product.
 
-## What It Does
+## Quick Start
 
-Replaces dense matrix multiplication with a **sparse gather-multiply-scatter** operation over precomputed structure constants. For E₈ this means 16,694 operations instead of 15.3 million — **913× fewer**. The same principle applies to all exceptional Lie algebras, verified to machine epsilon across all five.
+```python
+import dhl_mm
+
+# Load any exceptional algebra — cached, <25ms
+e8 = dhl_mm.algebra("E8")
+g2 = dhl_mm.algebra("G2")
+
+# Sparse Lie bracket (913× fewer ops than dense for E8)
+import numpy as np
+x, y = np.random.randn(248), np.random.randn(248)
+z = e8.bracket(x, y)
+```
+
+### Differentiable PyTorch bracket
+
+```python
+from equivariant import SparseLieBracket
+import torch
+
+bracket = SparseLieBracket.from_algebra("E8")  # or "G2", "F4", "E6", "E7"
+x = torch.randn(248, requires_grad=True)
+y = torch.randn(248)
+z = bracket(x, y)       # full autograd support
+z.sum().backward()       # gradients flow through sparse scatter-add
+```
+
+### Adjoint-equivariant neural network
+
+```python
+from equivariant import ExceptionalEGNN
+
+model = ExceptionalEGNN(
+    in_dim=14, hidden_dim=32, out_dim=1,
+    n_layers=3, algebra_name="G2", equivariant=True
+)
+nodes = torch.randn(10, 14)
+edge_index = torch.tensor([[0,1,2,3],[1,2,3,0]], dtype=torch.long)
+prediction = model(nodes, edge_index)
+```
+
+### PyTorch Geometric
+
+```python
+from dhl_mm.pyg import LieBracketConv  # requires torch_geometric
+
+conv = LieBracketConv("E8", equivariant=True)
+out = conv(node_features, edge_index)   # equivariant message passing
+```
 
 ## Compression Table
 
@@ -41,85 +96,6 @@ None of the exceptional Lie algebras have a cubic Casimir invariant:
 
 No degree 3 means the symmetric structure constants d_{ij}^k vanish identically for **all five**. The full product T_i·T_j projected onto the Lie algebra equals [T_i, T_j]/2 exactly. The entire product is determined by the antisymmetric structure constants alone.
 
-## Project Structure
-
-```
-dhl_mm/            Core E₈ library (pip-installable)
-  engine.py          DHLMM class: bracket, full_product, Z[phi] arithmetic, defect monitor
-  e8.py              E₈ root system + Frenkel-Kac structure constants
-  zphi.py            Exact Z[phi] = {a + b*phi : a,b in Z} arithmetic
-  defect.py          Friedmann-style h²(t) error tracker
-
-exceptional/       All 5 exceptional algebras (G₂, F₄, E₆, E₇, E₈)
-  engine.py          ExceptionalAlgebra(name) unified class
-  roots.py           Root system builders
-  structure.py       Structure constant computation (Chevalley basis)
-  casimir.py         Casimir degree analysis + d-tensor verification
-  benchmarks.py      Compression ratio table
-
-equivariant/       PyTorch equivariant neural network layers
-  sparse_kernel.py   Differentiable autograd wrapper (SparseLieBracket)
-  layers.py          LieConvLayer, ClebschGordanDecomposer
-  model.py           ExceptionalEGNN architecture
-  benchmark.py       Synthetic benchmark
-```
-
-## Quick Start
-
-### E₈ (core library)
-
-```python
-from dhl_mm import DHLMM
-import numpy as np
-
-engine = DHLMM.build()
-x, y = np.random.randn(248), np.random.randn(248)
-
-z = engine.bracket(x, y)          # [x, y] — 913x fewer ops than matmul
-p = engine.full_product(x, y)     # x*y projected to Lie algebra (= [x,y]/2)
-```
-
-### Any exceptional algebra
-
-```python
-from exceptional import ExceptionalAlgebra
-
-alg = ExceptionalAlgebra("F4")    # or "G2", "E6", "E7", "E8"
-x, y = np.random.randn(alg.dim), np.random.randn(alg.dim)
-
-z = alg.bracket(x, y)
-k = alg.killing_form(x, y)
-d = alg.verify_d_vanishes()       # confirms d-tensor = 0
-```
-
-### PyTorch (differentiable)
-
-```python
-from equivariant import SparseLieBracket, ExceptionalEGNN
-import torch
-
-bracket = SparseLieBracket()      # E₈ structure constants as buffers
-x = torch.randn(248, requires_grad=True)
-y = torch.randn(248, requires_grad=True)
-z = bracket(x, y)                 # full autograd support
-z.sum().backward()                # gradients flow through sparse scatter-add
-
-model = ExceptionalEGNN(in_dim=248, hidden_dim=64, out_dim=1, n_layers=4)
-```
-
-### Benchmarks and tests
-
-```bash
-pip install numpy
-
-py dhl_mm_v2.py                    # E₈ framework with benchmarks
-py test_structure.py               # E₈ algebraic identity verification
-py test_full_algebra.py            # E₈ full 248-dim test suite
-py exceptional/benchmarks.py       # All 5 algebras compression table
-py exceptional/tests/test_all.py   # All 5 algebras test suite
-py equivariant/tests/test_equivariance.py  # PyTorch gradient + consistency tests
-```
-
 ## How It Works
 
 ### 1. Sparse Structure Constant Engine
@@ -129,7 +105,7 @@ Instead of multiplying n×n matrices, the product of two Lie algebra elements X 
 (XY)_k = (1/2) Σ_{(i,j,k) ∈ f} xᵢ · yⱼ · f_{ij}^k
 ```
 
-where f_{ij}^k are precomputed sparse entries. This is a gather-multiply-scatter operation.
+where f_{ij}^k are precomputed sparse entries. This is a gather-multiply-scatter operation. Structure constants are precomputed and shipped as `.npz` files — first algebra load takes <25ms.
 
 ### 2. Z[φ] Exact Arithmetic
 Coefficients stored as integer pairs (a, b) representing a + bφ where φ is the golden ratio. Multiplication uses φ² = φ + 1. No floating-point accumulation errors for algebraic inputs.
@@ -140,8 +116,55 @@ h²(t) = h²_Λ - (κ/3) · ρ_defect(t)
 ```
 Tracks accumulated deviation from the Z[φ] lattice. When h²(t) drops below threshold, coefficients are projected back to the nearest lattice point. Self-correcting computation.
 
-### 4. Differentiable PyTorch Kernel
-The sparse bracket is wrapped in a custom `torch.autograd.Function` with correct backward pass (the adjoint of scatter-add is gather). Structure constants are registered as module buffers — they move to GPU with the model but are not trainable.
+### 4. Adjoint-Equivariant Neural Network Layers
+- **`AdjointLinearLayer`** — by Schur's lemma, the only linear map commuting with the adjoint action is a scalar multiple of the identity. Single learnable parameter.
+- **`AdjointBilinearLayer`** — the two independent adjoint-invariant bilinear operations: antisymmetric bracket + symmetric Killing form scalar.
+- **`EquivariantLieConvLayer`** — message passing with bracket-based nonlinearity `x + α·[agg, W(agg)]`, following the Lie Neurons pattern (Lin et al. 2024). Adjoint equivariance verified to ~1e-15 for all 5 algebras.
+- **`LieBracketConv`** — PyTorch Geometric `MessagePassing` layer, drop-in compatible with any PyG pipeline.
+
+### 5. Optional C Extension
+A pybind11 C++ sparse kernel with OpenMP batched support is included (`dhl_mm/csrc/`). Falls back to NumPy if not compiled. Build with:
+```bash
+pip install pybind11 && python setup.py build_ext --inplace
+```
+
+## Project Structure
+
+```
+dhl_mm/                 Core library (pip install dhl-mm)
+  __init__.py             algebra() factory with cached loading
+  exceptional_engine.py   ExceptionalAlgebra class for all 5 algebras
+  roots.py                Root system builders (G2, F4, E6, E7, E8)
+  structure.py            Structure constant computation (Chevalley basis)
+  casimir.py              Casimir degree analysis + d-tensor verification
+  e8.py                   E8 root system + Frenkel-Kac cocycle
+  engine.py               DHLMM class (original E8 engine)
+  zphi.py                 Exact Z[phi] arithmetic
+  defect.py               Friedmann-style h²(t) error tracker
+  pyg.py                  PyTorch Geometric LieBracketConv layer
+  csparse.py              C extension wrapper with numpy fallback
+  csrc/                   pybind11 C++ sparse kernel (optional)
+  data/                   Precomputed .npz structure constants
+
+equivariant/            PyTorch equivariant neural network layers
+  sparse_kernel.py        SparseLieBracket, SparseKillingForm (differentiable)
+  layers.py               LieConvLayer, EquivariantLieConvLayer, AdjointLinearLayer
+  model.py                ExceptionalEGNN architecture
+  benchmark.py            Multi-algebra benchmark suite
+
+notebooks/              Interactive demos
+  e8_in_5_minutes.ipynb   All 5 algebras, benchmarks, equivariance (Colab-ready)
+  equivariant_gnn_demo.ipynb  Train an equivariant GNN on synthetic data
+```
+
+## Running Tests
+
+```bash
+python exceptional/tests/test_all.py              # All 5 algebras: Jacobi, antisymmetry, Killing
+python equivariant/tests/test_equivariance.py      # Equivariance, gradients, consistency
+python equivariant/benchmark.py                    # Sparse vs dense timing, all algebras
+python benchmarks/sparse_kernel_bench.py           # C extension vs numpy vs dense
+```
 
 ## Applications
 
@@ -151,15 +174,16 @@ The sparse bracket is wrapped in a custom `torch.autograd.Function` with correct
 - Equivariant neural networks (molecular property prediction, physics-informed ML)
 - Post-quantum cryptography (E₈ lattice operations)
 - Geometric algebra / Clifford algebra acceleration
-- E₈ lattice computations (GSM physics solver)
 
 See [APPLICATIONS_ROADMAP.md](APPLICATIONS_ROADMAP.md) for detailed directions.
 
 ## Requirements
 
-- Python 3.8+
-- NumPy
-- PyTorch (for equivariant/ only)
+- Python ≥3.9
+- NumPy ≥1.20
+- PyTorch ≥2.0 (for equivariant layers, optional)
+- SciPy ≥1.10 (for equivariance tests, optional)
+- torch_geometric (for `LieBracketConv`, optional)
 
 ## License
 
