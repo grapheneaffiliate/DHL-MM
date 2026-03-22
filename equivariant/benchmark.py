@@ -1,10 +1,11 @@
 """
-Synthetic benchmark for the equivariant DHL-MM PyTorch library.
+Benchmark for the equivariant DHL-MM PyTorch library.
 
-Compares sparse DHL-MM kernel vs dense matrix multiply for Lie bracket,
-and trains ExceptionalEGNN on a synthetic graph regression task.
+Benchmarks all 5 exceptional algebras:
+1. Sparse vs dense bracket forward+backward wall time
+2. EquivariantLieConvLayer forward+backward on synthetic graph
 
-No external dependencies beyond numpy and torch.
+No external dependencies beyond numpy, torch, and exceptional/.
 """
 
 import sys
@@ -17,231 +18,179 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import torch
 import torch.nn as nn
 
-from dhl_mm import DHLMM
-from dhl_mm.e8 import DIM
-
 from equivariant.sparse_kernel import SparseLieBracket, SparseKillingForm
+from equivariant.layers import EquivariantLieConvLayer
 from equivariant.model import ExceptionalEGNN
 
-
-class SyntheticGraphDataset:
-    """
-    Random graphs with algebra-valued node features.
-
-    Target: Killing form invariant of sum of pairwise brackets.
-    This ensures the target respects the algebra symmetry.
-    """
-
-    def __init__(self, n_graphs=500, n_nodes_range=(5, 20), algebra_dim=DIM, seed=42):
-        self.n_graphs = n_graphs
-        self.n_nodes_range = n_nodes_range
-        self.algebra_dim = algebra_dim
-
-        rng = np.random.RandomState(seed)
-
-        # Build engine for computing targets
-        engine = DHLMM.build()
-
-        self.graphs = []
-        for _ in range(n_graphs):
-            n_nodes = rng.randint(n_nodes_range[0], n_nodes_range[1] + 1)
-
-            # Random algebra-valued node features (sparse for realism)
-            node_features = rng.randn(n_nodes, algebra_dim) * 0.1
-
-            # Random edges (connected graph with some extra edges)
-            edges_src = []
-            edges_tgt = []
-            # Chain to ensure connectivity
-            for i in range(n_nodes - 1):
-                edges_src.extend([i, i + 1])
-                edges_tgt.extend([i + 1, i])
-            # Extra random edges
-            n_extra = rng.randint(0, n_nodes)
-            for _ in range(n_extra):
-                s = rng.randint(n_nodes)
-                t = rng.randint(n_nodes)
-                if s != t:
-                    edges_src.extend([s, t])
-                    edges_tgt.extend([t, s])
-
-            edge_index = np.array([edges_src, edges_tgt], dtype=np.int64)
-
-            # Compute target: Killing form of sum of pairwise brackets along edges
-            bracket_sum = np.zeros(algebra_dim)
-            for e in range(edge_index.shape[1]):
-                s, t = edge_index[0, e], edge_index[1, e]
-                bracket_sum += engine.bracket(node_features[s], node_features[t])
-
-            target = engine.killing_form(bracket_sum, bracket_sum)
-            # Normalize target to reasonable range
-            target = np.float64(target) / (n_nodes ** 2)
-
-            self.graphs.append({
-                'nodes': torch.tensor(node_features, dtype=torch.float32),
-                'edge_index': torch.tensor(edge_index, dtype=torch.long),
-                'target': torch.tensor([target], dtype=torch.float32),
-                'n_nodes': n_nodes,
-            })
-
-    def __len__(self):
-        return self.n_graphs
-
-    def __getitem__(self, idx):
-        g = self.graphs[idx]
-        return g['nodes'], g['edge_index'], g['target']
+ALL_ALGEBRAS = ["G2", "F4", "E6", "E7", "E8"]
+DIM_MAP = {"G2": 14, "F4": 52, "E6": 78, "E7": 133, "E8": 248}
 
 
-def benchmark_forward_pass(n_iters=100, batch_size=32, algebra_dim=DIM):
-    """Compare forward pass time: sparse DHL-MM kernel vs dense matmul."""
-    print("Building DHL-MM engine...")
-    engine = DHLMM.build()
+def benchmark_bracket_sparse_vs_dense(n_iters=50, batch_size=32):
+    """Compare sparse bracket forward+backward vs dense for all algebras."""
+    from exceptional.engine import ExceptionalAlgebra
 
-    # Build dense structure constant tensor for comparison
-    dense_f = np.zeros((algebra_dim, algebra_dim, algebra_dim), dtype=np.float64)
-    for idx in range(len(engine.fI)):
-        i, j, k = int(engine.fI[idx]), int(engine.fJ[idx]), int(engine.fK[idx])
-        c = engine.fC[idx]
-        dense_f[i, j, k] += c
+    results = {}
 
-    dense_f_torch = torch.tensor(dense_f, dtype=torch.float32)
+    for name in ALL_ALGEBRAS:
+        dim = DIM_MAP[name]
+        alg = ExceptionalAlgebra(name)
 
-    # Sparse kernel
-    bracket = SparseLieBracket(algebra_dim=algebra_dim)
-    bracket.eval()
+        # Build sparse bracket
+        bracket = SparseLieBracket.from_algebra(name)
 
-    # Random inputs
-    x = torch.randn(batch_size, algebra_dim, dtype=torch.float32)
-    y = torch.randn(batch_size, algebra_dim, dtype=torch.float32)
+        # Build dense structure constant tensor
+        dense_f = np.zeros((dim, dim, dim), dtype=np.float64)
+        for idx in range(len(alg.fI)):
+            i, j, k = int(alg.fI[idx]), int(alg.fJ[idx]), int(alg.fK[idx])
+            c = alg.fC[idx]
+            dense_f[i, j, k] += c
+        dense_f_torch = torch.tensor(dense_f, dtype=torch.float32)
 
-    # Warm up
-    for _ in range(5):
-        _ = bracket(x, y)
-        _ = torch.einsum('bi,bj,ijk->bk', x, y, dense_f_torch)
+        # Random inputs with grad
+        x = torch.randn(batch_size, dim, dtype=torch.float32, requires_grad=True)
+        y = torch.randn(batch_size, dim, dtype=torch.float32, requires_grad=True)
 
-    # Time sparse
-    torch.cuda.synchronize() if torch.cuda.is_available() else None
-    t0 = time.perf_counter()
-    for _ in range(n_iters):
-        z_sparse = bracket(x, y)
-    torch.cuda.synchronize() if torch.cuda.is_available() else None
-    t_sparse = (time.perf_counter() - t0) / n_iters * 1000  # ms
+        # Warm up
+        for _ in range(3):
+            z = bracket(x, y)
+            z.sum().backward()
+            x.grad = None
+            y.grad = None
 
-    # Time dense
-    torch.cuda.synchronize() if torch.cuda.is_available() else None
-    t0 = time.perf_counter()
-    for _ in range(n_iters):
-        z_dense = torch.einsum('bi,bj,ijk->bk', x, y, dense_f_torch)
-    torch.cuda.synchronize() if torch.cuda.is_available() else None
-    t_dense = (time.perf_counter() - t0) / n_iters * 1000  # ms
+        # Time sparse forward+backward
+        t0 = time.perf_counter()
+        for _ in range(n_iters):
+            z = bracket(x, y)
+            z.sum().backward()
+            x.grad = None
+            y.grad = None
+        t_sparse = (time.perf_counter() - t0) / n_iters * 1000  # ms
 
-    # Memory comparison
-    import tracemalloc
-    tracemalloc.start()
-    _ = bracket(x, y)
-    _, mem_sparse = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
+        # Time dense forward+backward
+        x2 = x.detach().requires_grad_(True)
+        y2 = y.detach().requires_grad_(True)
+        for _ in range(3):
+            z = torch.einsum('bi,bj,ijk->bk', x2, y2, dense_f_torch)
+            z.sum().backward()
+            x2.grad = None
+            y2.grad = None
 
-    tracemalloc.start()
-    _ = torch.einsum('bi,bj,ijk->bk', x, y, dense_f_torch)
-    _, mem_dense = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
+        t0 = time.perf_counter()
+        for _ in range(n_iters):
+            z = torch.einsum('bi,bj,ijk->bk', x2, y2, dense_f_torch)
+            z.sum().backward()
+            x2.grad = None
+            y2.grad = None
+        t_dense = (time.perf_counter() - t0) / n_iters * 1000  # ms
 
-    mem_sparse_mb = mem_sparse / 1024 / 1024
-    mem_dense_mb = mem_dense / 1024 / 1024
+        n_entries = len(alg.fI)
+        sparse_mb = n_entries * 4 * 8 / 1024 / 1024  # I,J,K (int64) + C (float64)
+        dense_mb = dim ** 3 * 4 / 1024 / 1024  # float32
 
-    # Also report the size of stored constants
-    sparse_const_bytes = (bracket.I.nelement() * 8 + bracket.J.nelement() * 8 +
-                          bracket.K.nelement() * 8 + bracket.C.nelement() * 8)
-    dense_const_bytes = dense_f_torch.nelement() * 4
-    sparse_const_mb = sparse_const_bytes / 1024 / 1024
-    dense_const_mb = dense_const_bytes / 1024 / 1024
+        results[name] = {
+            'dim': dim,
+            'n_entries': n_entries,
+            't_sparse_ms': t_sparse,
+            't_dense_ms': t_dense,
+            'speedup': t_dense / t_sparse if t_sparse > 0 else float('inf'),
+            'sparse_mb': sparse_mb,
+            'dense_mb': dense_mb,
+        }
 
-    return {
-        't_sparse': t_sparse,
-        't_dense': t_dense,
-        'speedup': t_dense / t_sparse if t_sparse > 0 else float('inf'),
-        'mem_sparse_peak': mem_sparse_mb,
-        'mem_dense_peak': mem_dense_mb,
-        'sparse_const_mb': sparse_const_mb,
-        'dense_const_mb': dense_const_mb,
-    }
+    return results
 
 
-def benchmark_training(n_steps=100, n_graphs=200, hidden_dim=32, n_layers=2):
-    """Train ExceptionalEGNN on synthetic data and report loss curve."""
-    print("\nGenerating synthetic dataset...")
-    dataset = SyntheticGraphDataset(n_graphs=n_graphs, n_nodes_range=(5, 12),
-                                    algebra_dim=DIM)
+def benchmark_equivariant_layer(n_iters=20):
+    """Benchmark EquivariantLieConvLayer forward+backward on synthetic graph."""
+    n_nodes = 20
+    n_edges_per_dir = 30  # 60 directed edges total
 
-    print("Building model...")
-    model = ExceptionalEGNN(
-        in_dim=DIM,
-        hidden_dim=hidden_dim,
-        out_dim=1,
-        n_layers=n_layers,
-        algebra_dim=DIM,
-        task='graph',
-    )
-    model.train()
+    # Build graph
+    rng = np.random.RandomState(42)
+    src_list = []
+    tgt_list = []
+    # Chain
+    for i in range(n_nodes - 1):
+        src_list.extend([i, i + 1])
+        tgt_list.extend([i + 1, i])
+    # Extra random edges to reach ~60
+    while len(src_list) < n_edges_per_dir * 2:
+        s = rng.randint(n_nodes)
+        t = rng.randint(n_nodes)
+        if s != t:
+            src_list.extend([s, t])
+            tgt_list.extend([t, s])
+    edge_index = torch.tensor([src_list, tgt_list], dtype=torch.long)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    criterion = nn.MSELoss()
+    results = {}
+    for name in ALL_ALGEBRAS:
+        dim = DIM_MAP[name]
+        layer = EquivariantLieConvLayer(algebra_name=name)
+        layer.train()
 
-    losses = []
-    print(f"Training for {n_steps} steps...")
-    for step in range(n_steps):
-        idx = step % len(dataset)
-        nodes, edge_index, target = dataset[idx]
+        features = torch.randn(n_nodes, dim, dtype=torch.float32, requires_grad=True)
 
-        optimizer.zero_grad()
-        pred = model(nodes, edge_index)  # (1, 1)
-        loss = criterion(pred.squeeze(), target.squeeze())
-        loss.backward()
-        optimizer.step()
+        # Warm up
+        for _ in range(2):
+            out = layer(features, edge_index)
+            out.sum().backward()
+            features.grad = None
 
-        losses.append(loss.item())
-        if step % 20 == 0 or step == n_steps - 1:
-            print(f"  Step {step:4d}: loss = {loss.item():.6f}")
+        t0 = time.perf_counter()
+        for _ in range(n_iters):
+            out = layer(features, edge_index)
+            out.sum().backward()
+            features.grad = None
+        elapsed = (time.perf_counter() - t0) / n_iters * 1000  # ms
 
-    return losses
+        results[name] = {
+            'dim': dim,
+            'ms_per_forward': elapsed,
+            'n_nodes': n_nodes,
+            'n_edges': edge_index.shape[1],
+        }
+
+    return results
 
 
 def main():
-    print("=" * 70)
-    print("DHL-MM Equivariant Neural Network Benchmark")
-    print("=" * 70)
-    print(f"Algebra: E8 (dim={DIM})")
+    print("=" * 80)
+    print("DHL-MM Equivariant Neural Network Benchmark — All 5 Exceptional Algebras")
+    print("=" * 80)
     print(f"Device: {'CUDA' if torch.cuda.is_available() else 'CPU'}")
     print()
 
-    # Forward pass benchmark
-    print("-" * 70)
-    print("1. Forward Pass Benchmark (sparse vs dense)")
-    print("-" * 70)
-    results = benchmark_forward_pass(n_iters=50, batch_size=32)
+    # 1. Sparse vs Dense bracket
+    print("-" * 80)
+    print("1. Sparse vs Dense Bracket (forward + backward, batch=32)")
+    print("-" * 80)
+
+    bracket_results = benchmark_bracket_sparse_vs_dense(n_iters=50, batch_size=32)
+
+    header = f"{'Algebra':<8s} {'Dim':>5s} {'Entries':>8s} {'Sparse ms':>10s} {'Dense ms':>10s} {'Speedup':>8s} {'Sparse MB':>10s} {'Dense MB':>10s}"
+    print(header)
+    print("-" * len(header))
+    for name in ALL_ALGEBRAS:
+        r = bracket_results[name]
+        print(f"{name:<8s} {r['dim']:>5d} {r['n_entries']:>8d} {r['t_sparse_ms']:>10.2f} {r['t_dense_ms']:>10.2f} {r['speedup']:>7.1f}x {r['sparse_mb']:>10.3f} {r['dense_mb']:>10.3f}")
 
     print()
-    print(f"{'Metric':<30s} {'Sparse (DHL-MM)':>18s} {'Dense (matmul)':>18s}")
-    print("-" * 70)
-    print(f"{'Forward time (ms/batch)':<30s} {results['t_sparse']:>17.3f}  {results['t_dense']:>17.3f}")
-    print(f"{'Constant storage (MB)':<30s} {results['sparse_const_mb']:>17.3f}  {results['dense_const_mb']:>17.3f}")
-    print(f"{'Peak memory (MB)':<30s} {results['mem_sparse_peak']:>17.3f}  {results['mem_dense_peak']:>17.3f}")
-    print(f"{'Speedup':<30s} {results['speedup']:>17.1f}x")
 
-    # Training benchmark
-    print()
-    print("-" * 70)
-    print("2. Training Benchmark (ExceptionalEGNN on synthetic data)")
-    print("-" * 70)
-    losses = benchmark_training(n_steps=100, n_graphs=200, hidden_dim=32, n_layers=2)
+    # 2. EquivariantLieConvLayer benchmark
+    print("-" * 80)
+    print("2. EquivariantLieConvLayer (forward + backward, 20 nodes, ~60 edges)")
+    print("-" * 80)
 
-    print()
-    print(f"{'Metric':<30s} {'Value':>18s}")
-    print("-" * 50)
-    print(f"{'Training loss (step 0)':<30s} {losses[0]:>18.6f}")
-    print(f"{'Training loss (step 100)':<30s} {losses[-1]:>18.6f}")
-    print(f"{'Loss reduction':<30s} {(1 - losses[-1]/losses[0])*100:>17.1f}%")
+    layer_results = benchmark_equivariant_layer(n_iters=20)
+
+    header2 = f"{'Algebra':<8s} {'Dim':>5s} {'Nodes':>6s} {'Edges':>6s} {'ms/forward':>12s}"
+    print(header2)
+    print("-" * len(header2))
+    for name in ALL_ALGEBRAS:
+        r = layer_results[name]
+        print(f"{name:<8s} {r['dim']:>5d} {r['n_nodes']:>6d} {r['n_edges']:>6d} {r['ms_per_forward']:>12.2f}")
+
     print()
     print("Benchmark complete.")
 

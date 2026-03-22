@@ -46,7 +46,7 @@ THE RESULTS
   Algebra  Dim  Nonzero f    Full n^3     Compression  Jacobi Error
   -------  ---  ---------    --------     -----------  ------------
   G2        14        120       2,744         22.9x      ~1e-14
-  F4        52        380     140,608          370x      ~1e-16
+  F4        52      1,196     140,608        117.6x      ~1e-16
   E6        78      2,208     474,552          215x      ~1e-13
   E7       133      5,544   2,352,637          424x      ~1e-13
   E8       248     16,694  15,252,992          913x      ~1e-16
@@ -136,7 +136,7 @@ I found that NONE of the exceptional algebras have a cubic Casimir invariant. Th
 
 The results (all verified to machine epsilon):
 -- G2: 22.9x compression (14-dim)
--- F4: 370x compression (52-dim)
+-- F4: 117.6x compression (52-dim)
 -- E6: 215x compression (78-dim)
 -- E7: 424x compression (133-dim)
 -- E8: 913x compression (248-dim)
@@ -185,7 +185,7 @@ No degree 3 = symmetric d-tensor vanishes = sparse constants capture everything.
 TWEET 3:
 Compression ratios:
 G2 (14-dim): 23x
-F4 (52-dim): 370x
+F4 (52-dim): 117.6x
 E6 (78-dim): 215x
 E7 (133-dim): 424x
 E8 (248-dim): 913x

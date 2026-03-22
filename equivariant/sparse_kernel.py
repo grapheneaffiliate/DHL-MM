@@ -4,6 +4,8 @@ PyTorch autograd wrapper around DHL-MM sparse structure constant engine.
 Provides differentiable Lie bracket and Killing form operations that
 register structure constants as non-trainable buffers and support
 both CPU and GPU computation.
+
+Supports all five exceptional Lie algebras via from_algebra() factory.
 """
 
 import sys
@@ -14,8 +16,6 @@ import numpy as np
 
 # Ensure the parent package is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from dhl_mm import DHLMM
-from dhl_mm.e8 import DIM
 
 
 class SparseLieBracketFn(torch.autograd.Function):
@@ -86,16 +86,19 @@ class SparseLieBracket(nn.Module):
     """
     Differentiable Lie bracket [x, y] using sparse structure constants.
 
-    If I, J, K, C are not provided, builds them from DHLMM.build().
+    If I, J, K, C are not provided, builds them from DHLMM (E8 default).
     Structure constants are registered as buffers (not trainable, but
     move to GPU with the model).
+
+    Use from_algebra(name) to build for any exceptional algebra.
     """
 
-    def __init__(self, algebra_dim=DIM, I=None, J=None, K=None, C=None):
+    def __init__(self, algebra_dim=248, I=None, J=None, K=None, C=None):
         super().__init__()
         self.algebra_dim = algebra_dim
 
         if I is None or J is None or K is None or C is None:
+            from dhl_mm import DHLMM
             engine = DHLMM.build()
             I_np = engine.fI.astype(np.int64)
             J_np = engine.fJ.astype(np.int64)
@@ -110,6 +113,25 @@ class SparseLieBracket(nn.Module):
             self.register_buffer("J", J.long() if isinstance(J, torch.Tensor) else torch.tensor(J, dtype=torch.long))
             self.register_buffer("K", K.long() if isinstance(K, torch.Tensor) else torch.tensor(K, dtype=torch.long))
             self.register_buffer("C", C.double() if isinstance(C, torch.Tensor) else torch.tensor(C, dtype=torch.float64))
+
+    @classmethod
+    def from_algebra(cls, name: str):
+        """
+        Build a SparseLieBracket for any exceptional Lie algebra.
+
+        Args:
+            name: One of "G2", "F4", "E6", "E7", "E8"
+
+        Returns:
+            SparseLieBracket instance with structure constants from the algebra.
+        """
+        from exceptional.engine import ExceptionalAlgebra
+        alg = ExceptionalAlgebra(name)
+        I = torch.from_numpy(alg.fI.astype(np.int64))
+        J = torch.from_numpy(alg.fJ.astype(np.int64))
+        K = torch.from_numpy(alg.fK.astype(np.int64))
+        C = torch.from_numpy(alg.fC.astype(np.float64))
+        return cls(algebra_dim=alg.dim, I=I, J=J, K=K, C=C)
 
     def forward(self, x, y):
         """
@@ -132,16 +154,35 @@ class SparseKillingForm(nn.Module):
     Killing form K(x, y) = x @ killing_matrix @ y.
 
     The Killing matrix is registered as a buffer.
+
+    Use from_algebra(name) to build for any exceptional algebra.
     """
 
     def __init__(self, killing_matrix=None):
         super().__init__()
         if killing_matrix is None:
+            from dhl_mm import DHLMM
             engine = DHLMM.build()
             killing_matrix = engine.killing
         if isinstance(killing_matrix, np.ndarray):
             killing_matrix = torch.from_numpy(killing_matrix.astype(np.float64))
         self.register_buffer("killing", killing_matrix)
+
+    @classmethod
+    def from_algebra(cls, name: str):
+        """
+        Build a SparseKillingForm for any exceptional Lie algebra.
+
+        Args:
+            name: One of "G2", "F4", "E6", "E7", "E8"
+
+        Returns:
+            SparseKillingForm instance with the Killing matrix from the algebra.
+        """
+        from exceptional.engine import ExceptionalAlgebra
+        alg = ExceptionalAlgebra(name)
+        killing = torch.from_numpy(alg.killing.astype(np.float64))
+        return cls(killing_matrix=killing)
 
     def forward(self, x, y):
         """
