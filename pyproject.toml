@@ -4,15 +4,15 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "dhl-mm"
-version = "1.0.0"
-description = "Dynamic Hodge-Lie Matrix Multiplication — 913x faster E8 Lie algebra products via sparse structure constants"
+version = "0.1.0"
+description = "Up to 913x faster Lie algebra products for all five exceptional algebras with differentiable PyTorch equivariant layers"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 authors = [
     { name = "Timothy McGirl" },
 ]
-keywords = ["E8", "Lie algebra", "matrix multiplication", "sparse", "structure constants", "golden ratio", "physics"]
+keywords = ["E8", "Lie algebra", "sparse", "structure constants", "equivariant", "neural network", "PyTorch"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
@@ -23,8 +23,15 @@ classifiers = [
 ]
 dependencies = ["numpy>=1.20"]
 
+[project.optional-dependencies]
+torch = ["torch>=2.0"]
+full = ["torch>=2.0", "scipy>=1.10"]
+
 [project.urls]
 Homepage = "https://github.com/grapheneaffiliate/DHL-MM"
 
 [tool.setuptools.packages.find]
-include = ["dhl_mm*"]
+include = ["dhl_mm*", "equivariant*"]
+
+[tool.setuptools.package-data]
+"dhl_mm" = ["data/*.npz"]
