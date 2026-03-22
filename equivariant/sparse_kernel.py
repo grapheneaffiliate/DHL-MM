@@ -125,7 +125,7 @@ class SparseLieBracket(nn.Module):
         Returns:
             SparseLieBracket instance with structure constants from the algebra.
         """
-        from exceptional.engine import ExceptionalAlgebra
+        from dhl_mm.exceptional_engine import ExceptionalAlgebra
         alg = ExceptionalAlgebra(name)
         I = torch.from_numpy(alg.fI.astype(np.int64))
         J = torch.from_numpy(alg.fJ.astype(np.int64))
@@ -179,7 +179,7 @@ class SparseKillingForm(nn.Module):
         Returns:
             SparseKillingForm instance with the Killing matrix from the algebra.
         """
-        from exceptional.engine import ExceptionalAlgebra
+        from dhl_mm.exceptional_engine import ExceptionalAlgebra
         alg = ExceptionalAlgebra(name)
         killing = torch.from_numpy(alg.killing.astype(np.float64))
         return cls(killing_matrix=killing)
