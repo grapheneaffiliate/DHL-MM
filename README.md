@@ -145,7 +145,7 @@ Lie-algebra-valued lattice dynamics under adjoint commutator flow. The sparse br
 | E₇ | 133 | 126 | 5,544 | 2,352,637 | 424× | ~1e-13 |
 | E₈ | 248 | 240 | 16,694 | 15,252,992 | 913× | ~1e-16 |
 
-All algebras verified to machine epsilon. No approximations.
+All algebras verified to machine epsilon. No approximations. See [NUMERICAL_PRECISION.md](NUMERICAL_PRECISION.md) for detailed FP64 error bounds.
 
 ## Why It Works
 
@@ -256,6 +256,7 @@ tests/                     Test suites
   test_lattice.py            Lattice gauge: plaquettes, Metropolis, Wilson loops (7 tests)
   test_integrators.py        RKMK: convergence order, Killing conservation (7 tests)
   test_jax_backend.py        JAX: correctness, gradients, vmap, JIT (8 tests)
+  test_fp64.py               FP64 precision bounds, dtype enforcement (4 tests)
 
 examples/                  Demo scripts with output plots
   quantum_sim_demo.py        E8 spin lattice simulation + G2 vs E8 comparison
@@ -279,7 +280,7 @@ scripts/                   Build utilities
 
 ## Running Tests
 
-46+ tests across 6 suites:
+50+ tests across 7 suites:
 
 ```bash
 # Core algebra tests
@@ -293,6 +294,7 @@ python tests/test_quantum.py                       # Quantum sim: conservation, 
 python tests/test_lattice.py                       # Lattice gauge: plaquettes, Metropolis (7)
 python tests/test_integrators.py                   # RKMK: convergence order, conservation (7)
 python tests/test_jax_backend.py                   # JAX: correctness, gradients, vmap (8)
+python tests/test_fp64.py                          # FP64 precision bounds, dtype enforcement (4)
 
 # Benchmarks
 python equivariant/benchmark.py                    # Sparse vs dense timing, all algebras
