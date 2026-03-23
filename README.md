@@ -70,6 +70,39 @@ conv = LieBracketConv("E8", equivariant=True)
 out = conv(node_features, edge_index)   # equivariant message passing
 ```
 
+### Quantum simulation
+
+```python
+from dhl_mm import E8SpinLattice
+
+lattice = E8SpinLattice(n_sites=8, algebra_name="E8")
+state = lattice.random_initial_state()
+trajectory = lattice.evolve(state, dt=0.001, steps=500, order=2)
+# 8 sites × 500 steps in ~4 seconds on CPU
+```
+
+## Quantum Simulation Results
+
+Lie-algebra-valued lattice dynamics under adjoint commutator flow. The sparse bracket makes it feasible to simulate E₈-valued spin chains on CPU.
+
+<div align="center">
+<img src="examples/killing_norm_conservation.png" width="80%">
+</div>
+
+> **Killing norm conservation** — flat line proves the integrator preserves algebraic structure. Drift ~3×10⁻⁶ over 500 steps.
+
+<div align="center">
+<img src="examples/correlation_spreading.png" width="80%">
+</div>
+
+> **Correlation spreading** — Killing inner product between sites shows information propagation across the lattice.
+
+<div align="center">
+<img src="examples/algebra_comparison.png" width="80%">
+</div>
+
+> **G₂ vs E₈** — same lattice geometry, different algebras. G₂ (14-dim) drifts ~10⁻⁹, E₈ (248-dim) drifts ~10⁻⁶. Both well-conserved.
+
 ## Compression Table
 
 | Algebra | Dim | Roots | Nonzero f | Full n³ | Compression | Jacobi Error |
