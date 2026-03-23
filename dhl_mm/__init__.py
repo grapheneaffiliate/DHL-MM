@@ -32,6 +32,7 @@ from .defect import DefectMonitor
 from .e8 import DIM, build_roots, simple_roots, cartan_matrix
 from .quantum import LieHamiltonian, EquivariantTrotterSuzuki, E8SpinLattice
 from .lattice import GaugeLattice
+from .integrators import RKMKIntegrator, LieGroupFlow
 
 _DATA_DIR = _os.path.join(_os.path.dirname(__file__), "data")
 
@@ -93,8 +94,27 @@ def algebra(name: str):
     return ExceptionalAlgebra(name)
 
 
+def jax_algebra(name: str):
+    """Load a JAX-accelerated Lie algebra engine.
+
+    Provides JIT-compiled, differentiable bracket and Killing form
+    operations for the named exceptional Lie algebra.
+
+    Requires JAX: pip install jax jaxlib
+
+    Args:
+        name: One of "G2", "F4", "E6", "E7", "E8"
+
+    Returns:
+        JaxLieAlgebra instance
+    """
+    from .jax_backend import JaxLieAlgebra
+    return JaxLieAlgebra(name)
+
+
 __all__ = [
     "algebra",
+    "jax_algebra",
     "DHLMM",
     "ZPhi",
     "quantize",
@@ -109,4 +129,6 @@ __all__ = [
     "EquivariantTrotterSuzuki",
     "E8SpinLattice",
     "GaugeLattice",
+    "RKMKIntegrator",
+    "LieGroupFlow",
 ]
