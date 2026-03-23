@@ -21,7 +21,7 @@ Quick start:
     z = engine.bracket(x, y)
 """
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 import os as _os
 import numpy as _np

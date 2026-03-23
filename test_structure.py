@@ -91,7 +91,7 @@ def test_jacobi_basis_triples(generators, n_trials=2000):
         J = (Ea @ bc - bc @ Ea) + (Eb @ ca - ca @ Eb) + (Ec @ ab - ab @ Ec)
         err = np.linalg.norm(J)
         max_err = max(max_err, err)
-        if err > 1e-8:
+        if err > 1e-13:  # FP64: basis triple Jacobi error within machine precision
             fails += 1
 
     return fails, n_trials, max_err
@@ -232,7 +232,7 @@ def main():
     t0 = time.perf_counter()
     max_err = test_jacobi_random(generators, n_trials=100)
     t1 = time.perf_counter()
-    passed = max_err < 1e-8
+    passed = max_err < 1e-13  # FP64: relative Jacobi error well within machine precision
     results["JACOBI_RANDOM"] = passed
     print(f"  JACOBI (random):  {'PASS' if passed else 'FAIL'} (max_err={max_err:.2e}, time={t1 - t0:.1f}s)")
 
@@ -250,7 +250,7 @@ def main():
     k_mean, k_std, off_max = test_killing_form(generators, roots)
     # For a correct Lie algebra, |K(E_a, E_{-a})| should be constant (since E8 has one root length)
     passed_diag = k_std / (abs(k_mean) + 1e-30) < 0.01
-    passed_off = off_max < 1e-8
+    passed_off = off_max < 1e-13  # FP64: off-diagonal Killing form within machine precision
     passed = passed_diag and passed_off
     results["KILLING_FORM"] = passed
     print(f"  KILLING FORM:     {'PASS' if passed else 'FAIL'}")

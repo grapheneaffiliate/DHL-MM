@@ -168,6 +168,8 @@ class ExceptionalAlgebra:
         Returns:
             [x, y] as a dim-vector
         """
+        x = np.asarray(x, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
         result = np.zeros(self._dim)
         contributions = x[self.fI] * y[self.fJ] * self.fC
         np.add.at(result, self.fK, contributions)
@@ -186,6 +188,8 @@ class ExceptionalAlgebra:
         Returns:
             Projected product as a dim-vector
         """
+        x = np.asarray(x, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
         return self.bracket(x, y) / 2.0
 
     def killing_form(self, x: np.ndarray, y: np.ndarray) -> float:
@@ -198,6 +202,8 @@ class ExceptionalAlgebra:
         Returns:
             Scalar Killing form value
         """
+        x = np.asarray(x, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
         return float(x @ self.killing @ y)
 
     def verify_d_vanishes(self, n_samples: int = 50) -> float:

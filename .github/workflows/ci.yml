@@ -50,6 +50,9 @@ jobs:
       - name: Test — Quantum module
         run: python tests/test_quantum.py
 
+      - name: Test — FP64 precision guarantees
+        run: python tests/test_fp64.py
+
       # ── C extension correctness ───────────────────────────────
       - name: Test — C extension vs NumPy (bitwise agreement)
         run: |

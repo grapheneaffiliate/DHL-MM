@@ -75,6 +75,8 @@ class DHLMM:
 
     def bracket(self, x, y):
         """Lie bracket [x, y] using sparse structure constants. O(16,694)."""
+        x = np.asarray(x, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
         return lie_bracket(x, y, self.fI, self.fJ, self.fK, self.fC)
 
     def full_product(self, x, y):
@@ -82,6 +84,8 @@ class DHLMM:
 
         For E8: since d_{ij}^k = 0 (no cubic Casimir), this equals [x,y]/2.
         """
+        x = np.asarray(x, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
         result = np.zeros(DIM)
         contributions = x[self.fI] * y[self.fJ] * self.fC
         np.add.at(result, self.fK, contributions)
@@ -89,6 +93,8 @@ class DHLMM:
 
     def full_product_reference(self, x, y):
         """Full product via matrix multiplication (slow reference)."""
+        x = np.asarray(x, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
         X = np.einsum('i,iab->ab', x, self.gen_array)
         Y = np.einsum('i,iab->ab', y, self.gen_array)
         XY = X @ Y
@@ -97,10 +103,14 @@ class DHLMM:
 
     def killing_form(self, x, y):
         """Killing form K(x, y)."""
+        x = np.asarray(x, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
         return x @ self.killing @ y
 
     def product_with_defect(self, x, y):
         """Full product with defect monitoring and optional lattice pruning."""
+        x = np.asarray(x, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
         result = self.bracket(x, y)
         h2, should_prune = self.monitor.update(result)
         if should_prune:

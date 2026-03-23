@@ -63,7 +63,7 @@ def test_algebra(name: str) -> bool:
         all_pass = False
 
     # Test 3: Jacobi identity
-    jacobi_tol = 1e-8
+    jacobi_tol = 1e-11  # E6/E7 have more terms; 1e-11 covers all five algebras
     t0 = time.time()
     jacobi_viol = alg.verify_jacobi(n_triples=200, seed=42)
     jacobi_time = time.time() - t0

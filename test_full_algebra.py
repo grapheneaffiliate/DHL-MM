@@ -137,7 +137,7 @@ def main():
 
         err = np.linalg.norm(jac)
         max_err = max(max_err, err)
-        if err > 1e-8:
+        if err > 1e-13:  # FP64: Jacobi error within machine precision
             fails_2 += 1
             if fails_2 <= 3:
                 print(f"    FAIL triple: alpha={alpha_idx}, -alpha={neg_alpha_idx}, beta={beta_idx}, err={err:.2e}")
@@ -174,7 +174,7 @@ def main():
             err = np.linalg.norm(lhs - rhs)
             max_err_3 = max(max_err_3, err)
             tested_3 += 1
-            if err > 1e-8:
+            if err > 1e-13:  # FP64: Leibniz error within machine precision
                 fails_3 += 1
 
     passed = fails_3 == 0
@@ -206,7 +206,7 @@ def main():
         err = np.linalg.norm(jac) / (norms + 1e-30)
         max_err_4 = max(max_err_4, err)
 
-    passed = max_err_4 < 1e-8
+    passed = max_err_4 < 1e-13  # FP64: random 248-dim Jacobi within machine precision
     results["JACOBI_RANDOM_248"] = passed
     print(f"  JACOBI (random 248-dim): {'PASS' if passed else 'FAIL'} (max_relative_err={max_err_4:.2e})")
 
@@ -230,7 +230,7 @@ def main():
         jac = (Ea @ bc - bc @ Ea) + (Eb @ ca - ca @ Eb) + (Ec @ ab - ab @ Ec)
         err = np.linalg.norm(jac)
         max_err_5 = max(max_err_5, err)
-        if err > 1e-8:
+        if err > 1e-13:  # FP64: basis triple Jacobi within machine precision
             fails_5 += 1
             if fails_5 <= 5:
                 print(f"    FAIL: triple ({a},{b},{c}), err={err:.2e}")
@@ -270,7 +270,7 @@ def main():
 
         err = np.max(np.abs(jac))
         max_err_5b = max(max_err_5b, err)
-        if err > 1e-8:
+        if err > 1e-13:  # FP64: SC-direct Jacobi within machine precision
             fails_5b += 1
 
     passed = fails_5b == 0
@@ -303,7 +303,7 @@ def main():
         err = np.linalg.norm(bracket_mat_direct - Z_mat_sc) / (np.linalg.norm(bracket_mat_direct) + 1e-30)
         max_err_6 = max(max_err_6, err)
 
-    passed = max_err_6 < 1e-8
+    passed = max_err_6 < 1e-12  # FP64: SC vs matrix bracket agreement
     results["SC_VS_MATRIX"] = passed
     print(f"  SC vs MATRIX bracket: {'PASS' if passed else 'FAIL'} (max_relative_err={max_err_6:.2e})")
 
