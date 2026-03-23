@@ -86,19 +86,19 @@ trajectory = lattice.evolve(state, dt=0.001, steps=500, order=2)
 Lie-algebra-valued lattice dynamics under adjoint commutator flow. The sparse bracket makes it feasible to simulate E₈-valued spin chains on CPU.
 
 <div align="center">
-<img src="examples/killing_norm_conservation.png" width="80%">
+<img src="https://raw.githubusercontent.com/grapheneaffiliate/DHL-MM/master/examples/killing_norm_conservation.png" width="80%">
 </div>
 
 > **Killing norm conservation** — flat line proves the integrator preserves algebraic structure. Drift ~3×10⁻⁶ over 500 steps.
 
 <div align="center">
-<img src="examples/correlation_spreading.png" width="80%">
+<img src="https://raw.githubusercontent.com/grapheneaffiliate/DHL-MM/master/examples/correlation_spreading.png" width="80%">
 </div>
 
 > **Correlation spreading** — Killing inner product between sites shows information propagation across the lattice.
 
 <div align="center">
-<img src="examples/algebra_comparison.png" width="80%">
+<img src="https://raw.githubusercontent.com/grapheneaffiliate/DHL-MM/master/examples/algebra_comparison.png" width="80%">
 </div>
 
 > **G₂ vs E₈** — same lattice geometry, different algebras. G₂ (14-dim) drifts ~10⁻⁹, E₈ (248-dim) drifts ~10⁻⁶. Both well-conserved.
