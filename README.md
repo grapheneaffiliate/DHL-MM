@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/grapheneaffiliate/DHL-MM/blob/master/notebooks/e8_in_5_minutes.ipynb)
 
-Fast Lie algebra multiplication for all five exceptional algebras (G₂, F₄, E₆, E₇, E₈) using sparse structure constants with algebraic error control. Includes adjoint-equivariant PyTorch layers and PyTorch Geometric integration.
+Fast Lie algebra multiplication for all five exceptional algebras (G₂, F₄, E₆, E₇, E₈) using sparse structure constants. Includes adjoint-equivariant PyTorch layers, PyTorch Geometric integration, and Lie-algebra-valued quantum simulation.
 
 ```
 pip install dhl-mm
@@ -155,7 +155,12 @@ Tracks accumulated deviation from the Z[φ] lattice. When h²(t) drops below thr
 - **`EquivariantLieConvLayer`** — message passing with bracket-based nonlinearity `x + α·[agg, W(agg)]`, following the Lie Neurons pattern (Lin et al. 2024). Adjoint equivariance verified to ~1e-15 for all 5 algebras.
 - **`LieBracketConv`** — PyTorch Geometric `MessagePassing` layer, drop-in compatible with any PyG pipeline.
 
-### 5. Optional C Extension
+### 5. Quantum Simulation
+- **`LieHamiltonian`** — sparse commutator `[H, ρ]` for Lie-algebra-valued time evolution.
+- **`EquivariantTrotterSuzuki`** — first and second-order integrators with Killing norm drift tracking.
+- **`E8SpinLattice`** — nearest-neighbor coupled evolution on a 1D lattice of algebra-valued sites. 8-site E₈ lattice evolves in ~4s on CPU with Killing norm drift ~3×10⁻⁶.
+
+### 6. Optional C Extension
 A pybind11 C++ sparse kernel with OpenMP batched support is included (`dhl_mm/csrc/`). Falls back to NumPy if not compiled. Build with:
 ```bash
 pip install pybind11 && python setup.py build_ext --inplace
@@ -170,6 +175,7 @@ dhl_mm/                 Core library (pip install dhl-mm)
   roots.py                Root system builders (G2, F4, E6, E7, E8)
   structure.py            Structure constant computation (Chevalley basis)
   casimir.py              Casimir degree analysis + d-tensor verification
+  quantum.py              Trotter-Suzuki evolution + E8 spin lattice
   e8.py                   E8 root system + Frenkel-Kac cocycle
   engine.py               DHLMM class (original E8 engine)
   zphi.py                 Exact Z[phi] arithmetic
@@ -177,7 +183,7 @@ dhl_mm/                 Core library (pip install dhl-mm)
   pyg.py                  PyTorch Geometric LieBracketConv layer
   csparse.py              C extension wrapper with numpy fallback
   csrc/                   pybind11 C++ sparse kernel (optional)
-  data/                   Precomputed .npz structure constants
+  data/                   Precomputed .npz structure constants (5 algebras)
 
 equivariant/            PyTorch equivariant neural network layers
   sparse_kernel.py        SparseLieBracket, SparseKillingForm (differentiable)
@@ -185,9 +191,23 @@ equivariant/            PyTorch equivariant neural network layers
   model.py                ExceptionalEGNN architecture
   benchmark.py            Multi-algebra benchmark suite
 
-notebooks/              Interactive demos
-  e8_in_5_minutes.ipynb   All 5 algebras, benchmarks, equivariance (Colab-ready)
+exceptional/            Backward-compatible re-exports (delegates to dhl_mm/)
+
+examples/               Demo scripts with output plots
+  quantum_sim_demo.py     E8 spin lattice simulation + G2 vs E8 comparison
+
+notebooks/              Interactive demos (Colab-ready)
+  e8_in_5_minutes.ipynb   All 5 algebras, benchmarks, equivariance
   equivariant_gnn_demo.ipynb  Train an equivariant GNN on synthetic data
+
+tests/                  Test suites
+  test_quantum.py         Quantum simulation: conservation, Trotter accuracy
+
+benchmarks/             Performance benchmarks
+  sparse_kernel_bench.py  C extension vs numpy vs dense, all algebras
+
+scripts/                Build utilities
+  precompute.py           Generate .npz structure constant caches
 ```
 
 ## Running Tests
@@ -195,8 +215,10 @@ notebooks/              Interactive demos
 ```bash
 python exceptional/tests/test_all.py              # All 5 algebras: Jacobi, antisymmetry, Killing
 python equivariant/tests/test_equivariance.py      # Equivariance, gradients, consistency
+python tests/test_quantum.py                       # Quantum sim: conservation, Trotter accuracy
 python equivariant/benchmark.py                    # Sparse vs dense timing, all algebras
 python benchmarks/sparse_kernel_bench.py           # C extension vs numpy vs dense
+python examples/quantum_sim_demo.py                # E8 spin lattice demo (generates plots)
 ```
 
 ## Applications
@@ -217,6 +239,7 @@ See [APPLICATIONS_ROADMAP.md](APPLICATIONS_ROADMAP.md) for detailed directions.
 - PyTorch ≥2.0 (for equivariant layers, optional)
 - SciPy ≥1.10 (for equivariance tests, optional)
 - torch_geometric (for `LieBracketConv`, optional)
+- matplotlib (for quantum simulation plots, optional)
 
 ## License
 
