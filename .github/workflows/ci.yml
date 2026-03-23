@@ -23,7 +23,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install numpy pybind11
+          pip install setuptools wheel numpy pybind11
           pip install -e .
 
       - name: Build C extension
