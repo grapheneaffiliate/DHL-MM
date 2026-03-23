@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dhl-mm"
-version = "0.1.3"
+version = "0.2.0"
 description = "Up to 913x faster Lie algebra products for all five exceptional algebras with differentiable PyTorch equivariant layers"
 readme = "README.md"
 license = {text = "MIT"}

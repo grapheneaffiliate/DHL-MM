@@ -160,22 +160,45 @@ Tracks accumulated deviation from the Z[φ] lattice. When h²(t) drops below thr
 - **`EquivariantTrotterSuzuki`** — first and second-order integrators with Killing norm drift tracking.
 - **`E8SpinLattice`** — nearest-neighbor coupled evolution on a 1D lattice of algebra-valued sites. 8-site E₈ lattice evolves in ~4s on CPU with Killing norm drift ~3×10⁻⁶.
 
-### 6. Optional C Extension
-A pybind11 C++ sparse kernel with OpenMP batched support is included (`dhl_mm/csrc/`). Falls back to NumPy if not compiled. Build with:
+### 6. Lattice Gauge Theory
+- **`GaugeLattice`** — link variables, plaquettes, staples, Wilson loops (rectangular + Polyakov), and Metropolis updates for exceptional gauge groups. First open-source tooling for E₈/F₄ lattice gauge theory.
+- 8×8 E₈ lattice thermalizes in ~1.4s (100 sweeps). Acceptance rate ~52%.
+
+### 7. RKMK Lie Group Integrators
+- **`RKMKIntegrator`** — Euler, RK2, and RK4 with Baker-Campbell-Hausdorff bracket corrections for geometric structure preservation. Verified 4th-order convergence.
+- **`LieGroupFlow`** — convenience wrappers for rigid body dynamics, adjoint flow, and Yang-Mills evolution.
+- E₈ rigid body Killing norm drift ~2×10⁻⁹ over 1000 steps.
+
+### 8. JAX Backend
+- **`JaxSparseBracket`** — JIT-compiled sparse bracket with `custom_jvp` for forward-mode AD. `vmap` batch support.
+- **`JaxLieAlgebra`** — convenience wrapper with `bracket()`, `killing_form()`, `batch_bracket()`.
+- JAX is optional — module imports cleanly without it.
+
+```python
+from dhl_mm import jax_algebra
+alg = jax_algebra("E8")
+z = alg.bracket(x, y)  # JIT-compiled, differentiable
+```
+
+### 9. C Extension + Prebuilt Wheels
+A pybind11 C++ sparse kernel with OpenMP batched support is included (`dhl_mm/csrc/`). **993× speedup** over dense on CI hardware. Falls back to NumPy if not compiled. Prebuilt wheels for Linux, macOS, and Windows are built automatically via cibuildwheel on each release.
 ```bash
-pip install pybind11 && python setup.py build_ext --inplace
+pip install pybind11 && python setup.py build_ext --inplace  # manual build
 ```
 
 ## Project Structure
 
 ```
 dhl_mm/                 Core library (pip install dhl-mm)
-  __init__.py             algebra() factory with cached loading
+  __init__.py             algebra() / jax_algebra() factories with cached loading
   exceptional_engine.py   ExceptionalAlgebra class for all 5 algebras
   roots.py                Root system builders (G2, F4, E6, E7, E8)
   structure.py            Structure constant computation (Chevalley basis)
   casimir.py              Casimir degree analysis + d-tensor verification
   quantum.py              Trotter-Suzuki evolution + E8 spin lattice
+  lattice.py              Lattice gauge theory (plaquettes, Wilson loops, Metropolis)
+  integrators.py          RKMK Lie group integrators (Euler, RK2, RK4 + BCH)
+  jax_backend.py          JAX sparse bracket with custom_jvp + vmap
   e8.py                   E8 root system + Frenkel-Kac cocycle
   engine.py               DHLMM class (original E8 engine)
   zphi.py                 Exact Z[phi] arithmetic
@@ -195,6 +218,8 @@ exceptional/            Backward-compatible re-exports (delegates to dhl_mm/)
 
 examples/               Demo scripts with output plots
   quantum_sim_demo.py     E8 spin lattice simulation + G2 vs E8 comparison
+  lattice_gauge_demo.py   E8 lattice gauge thermalization + Wilson loops
+  integrators_demo.py     RKMK convergence test + rigid body demo
 
 notebooks/              Interactive demos (Colab-ready)
   e8_in_5_minutes.ipynb   All 5 algebras, benchmarks, equivariance
@@ -202,6 +227,9 @@ notebooks/              Interactive demos (Colab-ready)
 
 tests/                  Test suites
   test_quantum.py         Quantum simulation: conservation, Trotter accuracy
+  test_lattice.py         Lattice gauge: plaquettes, Metropolis, Wilson loops
+  test_integrators.py     RKMK: convergence order, Killing conservation
+  test_jax_backend.py     JAX: correctness, gradients, vmap, JIT
 
 benchmarks/             Performance benchmarks
   sparse_kernel_bench.py  C extension vs numpy vs dense, all algebras
@@ -216,9 +244,11 @@ scripts/                Build utilities
 python exceptional/tests/test_all.py              # All 5 algebras: Jacobi, antisymmetry, Killing
 python equivariant/tests/test_equivariance.py      # Equivariance, gradients, consistency
 python tests/test_quantum.py                       # Quantum sim: conservation, Trotter accuracy
+python tests/test_lattice.py                       # Lattice gauge: plaquettes, Metropolis
+python tests/test_integrators.py                   # RKMK: convergence order, conservation
+python tests/test_jax_backend.py                   # JAX: correctness, gradients, vmap
 python equivariant/benchmark.py                    # Sparse vs dense timing, all algebras
 python benchmarks/sparse_kernel_bench.py           # C extension vs numpy vs dense
-python examples/quantum_sim_demo.py                # E8 spin lattice demo (generates plots)
 ```
 
 ## Applications
@@ -237,9 +267,10 @@ See [APPLICATIONS_ROADMAP.md](APPLICATIONS_ROADMAP.md) for detailed directions.
 - Python ≥3.9
 - NumPy ≥1.20
 - PyTorch ≥2.0 (for equivariant layers, optional)
+- JAX ≥0.4 (for JAX backend, optional)
 - SciPy ≥1.10 (for equivariance tests, optional)
 - torch_geometric (for `LieBracketConv`, optional)
-- matplotlib (for quantum simulation plots, optional)
+- matplotlib (for demo plots, optional)
 
 ## License
 
