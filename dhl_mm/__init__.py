@@ -31,6 +31,7 @@ from .zphi import ZPhi, quantize, spectral_decompose, PHI
 from .defect import DefectMonitor
 from .e8 import DIM, build_roots, simple_roots, cartan_matrix
 from .quantum import LieHamiltonian, EquivariantTrotterSuzuki, E8SpinLattice
+from .lattice import GaugeLattice
 
 _DATA_DIR = _os.path.join(_os.path.dirname(__file__), "data")
 
@@ -107,4 +108,5 @@ __all__ = [
     "LieHamiltonian",
     "EquivariantTrotterSuzuki",
     "E8SpinLattice",
+    "GaugeLattice",
 ]
