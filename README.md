@@ -306,14 +306,20 @@ python examples/integrators_demo.py                # RKMK convergence + rigid bo
 
 ## Applications
 
-- Quantum simulation (Hamiltonian commutators, Trotter-Suzuki decomposition)
-- Lattice gauge theory (exceptional gauge group computations)
-- Lie group integration (Runge-Kutta-Munthe-Kaas methods)
-- Equivariant neural networks (molecular property prediction, physics-informed ML)
-- Post-quantum cryptography (E₈ lattice operations)
-- Geometric algebra / Clifford algebra acceleration
+**Shipped** — working modules in the package:
+- Quantum simulation — Trotter-Suzuki evolution on Lie-algebra-valued spin lattices
+- Lattice gauge theory — first open-source tooling for E₈/F₄ gauge groups
+- Lie group integration — RKMK integrators with BCH corrections
+- Equivariant neural networks — adjoint-equivariant layers, PyG compatible
+- JAX-accelerated computation — JIT-compiled sparse brackets with vmap
 
-See [APPLICATIONS_ROADMAP.md](APPLICATIONS_ROADMAP.md) for detailed directions.
+**Future directions:**
+- Post-quantum cryptography (E₈ lattice operations)
+- Tensor network contraction (exceptional symmetry groups)
+- Clifford algebra acceleration (geometric computing)
+- E₈ error-correcting codes
+
+See [APPLICATIONS_ROADMAP.md](APPLICATIONS_ROADMAP.md) for details.
 
 ## Requirements
 
