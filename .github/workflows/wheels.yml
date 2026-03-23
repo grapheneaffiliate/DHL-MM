@@ -1,0 +1,87 @@
+name: Build Wheels
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:  # manual trigger for testing
+
+jobs:
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install cibuildwheel
+        run: pip install cibuildwheel==2.21.3
+
+      - name: Build wheels
+        run: python -m cibuildwheel --output-dir wheelhouse
+        env:
+          # Build for Python 3.9-3.12
+          CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-*"
+          # Skip 32-bit, musl, PyPy
+          CIBW_SKIP: "*-win32 *-manylinux_i686 *-musllinux* pp*"
+          # Install build deps then build without isolation so setup.py
+          # can import pybind11 (pyproject.toml build-system.requires does
+          # not list pybind11, and we must not modify it)
+          CIBW_BEFORE_BUILD: "pip install setuptools wheel pybind11 numpy"
+          CIBW_BUILD_FRONTEND: "pip; args: --no-build-isolation"
+          # Test the wheel after building
+          CIBW_TEST_REQUIRES: "numpy"
+          CIBW_TEST_COMMAND: >
+            python -c "from dhl_mm.csparse import has_c_extension; assert has_c_extension(), 'C extension missing'; print('Wheel OK: C extension loaded')"
+          # macOS: set deployment target for C++14 compatibility
+          CIBW_ENVIRONMENT_MACOS: "MACOSX_DEPLOYMENT_TARGET=11.0"
+          # macOS arm64: also build for Apple Silicon
+          CIBW_ARCHS_MACOS: "x86_64 arm64"
+          # Linux: build x86_64 only (skip aarch64 to keep CI fast)
+          CIBW_ARCHS_LINUX: "x86_64"
+          # Windows: build AMD64 only
+          CIBW_ARCHS_WINDOWS: "AMD64"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
+
+  build_sdist:
+    name: Build source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sdist
+        run: |
+          pip install build
+          python -m build --sdist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish:
+    name: Publish to PyPI
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    permissions:
+      id-token: write  # for trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
