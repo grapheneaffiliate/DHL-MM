@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/grapheneaffiliate/DHL-MM/blob/master/notebooks/e8_in_5_minutes.ipynb)
 
-Fast Lie algebra multiplication for all five exceptional algebras (G₂, F₄, E₆, E₇, E₈) using sparse structure constants. Includes adjoint-equivariant PyTorch layers, PyTorch Geometric integration, and Lie-algebra-valued quantum simulation.
+Fast Lie algebra multiplication for all five exceptional algebras (G₂, F₄, E₆, E₇, E₈) using sparse structure constants. Eight modules: equivariant PyTorch layers, JAX backend, lattice gauge theory, RKMK Lie group integrators, quantum simulation, PyTorch Geometric integration, and a C++ extension hitting 993× over dense.
 
 ```
 pip install dhl-mm
@@ -70,6 +70,28 @@ conv = LieBracketConv("E8", equivariant=True)
 out = conv(node_features, edge_index)   # equivariant message passing
 ```
 
+### Lattice gauge theory
+
+```python
+from dhl_mm import GaugeLattice
+
+lat = GaugeLattice((8, 8), algebra_name="E8")  # 8×8 lattice, E8 gauge group
+lat.hot_start(scale=0.5)
+result = lat.thermalize(n_sweeps=100, beta=1.0)
+print(f"Average plaquette: {result['average_plaquettes'][-1]:.4f}")
+```
+
+### RKMK Lie group integrators
+
+```python
+from dhl_mm import RKMKIntegrator
+
+rk = RKMKIntegrator("E8")
+flow = lambda t, y: rk.alg.bracket(H, y)  # adjoint flow dy/dt = [H, y]
+result = rk.solve(flow, y0, t_span=(0, 1), dt=0.01, method='rk4')
+# 4th-order convergence with BCH bracket corrections
+```
+
 ### Quantum simulation
 
 ```python
@@ -79,6 +101,16 @@ lattice = E8SpinLattice(n_sites=8, algebra_name="E8")
 state = lattice.random_initial_state()
 trajectory = lattice.evolve(state, dt=0.001, steps=500, order=2)
 # 8 sites × 500 steps in ~4 seconds on CPU
+```
+
+### JAX backend
+
+```python
+from dhl_mm import jax_algebra
+
+alg = jax_algebra("E8")                     # JIT-compiled sparse bracket
+z = alg.bracket(x, y)                       # automatic differentiation via custom_jvp
+zs = alg.batch_bracket(xs, ys)              # vmap over batch dimension
 ```
 
 ## Quantum Simulation Results
@@ -189,66 +221,87 @@ pip install pybind11 && python setup.py build_ext --inplace  # manual build
 ## Project Structure
 
 ```
-dhl_mm/                 Core library (pip install dhl-mm)
-  __init__.py             algebra() / jax_algebra() factories with cached loading
-  exceptional_engine.py   ExceptionalAlgebra class for all 5 algebras
-  roots.py                Root system builders (G2, F4, E6, E7, E8)
-  structure.py            Structure constant computation (Chevalley basis)
-  casimir.py              Casimir degree analysis + d-tensor verification
-  quantum.py              Trotter-Suzuki evolution + E8 spin lattice
-  lattice.py              Lattice gauge theory (plaquettes, Wilson loops, Metropolis)
-  integrators.py          RKMK Lie group integrators (Euler, RK2, RK4 + BCH)
-  jax_backend.py          JAX sparse bracket with custom_jvp + vmap
-  e8.py                   E8 root system + Frenkel-Kac cocycle
-  engine.py               DHLMM class (original E8 engine)
-  zphi.py                 Exact Z[phi] arithmetic
-  defect.py               Friedmann-style h²(t) error tracker
-  pyg.py                  PyTorch Geometric LieBracketConv layer
-  csparse.py              C extension wrapper with numpy fallback
-  csrc/                   pybind11 C++ sparse kernel (optional)
-  data/                   Precomputed .npz structure constants (5 algebras)
+dhl_mm/                    Core library (pip install dhl-mm)
+  __init__.py                algebra() / jax_algebra() factories, cached loading
+  exceptional_engine.py      ExceptionalAlgebra class for all 5 algebras
+  roots.py                   Root system builders (G2, F4, E6, E7, E8)
+  structure.py               Structure constant computation (Chevalley basis)
+  casimir.py                 Casimir degree analysis + d-tensor verification
+  quantum.py                 Trotter-Suzuki evolution + E8 spin lattice
+  lattice.py                 Lattice gauge theory (plaquettes, Wilson loops, Metropolis)
+  integrators.py             RKMK Lie group integrators (Euler, RK2, RK4 + BCH)
+  jax_backend.py             JAX sparse bracket with custom_jvp + vmap
+  e8.py                      E8 root system + Frenkel-Kac cocycle
+  engine.py                  DHLMM class (original E8 engine)
+  zphi.py                    Exact Z[phi] arithmetic
+  defect.py                  Friedmann-style h²(t) error tracker
+  pyg.py                     PyTorch Geometric LieBracketConv layer
+  csparse.py                 C extension wrapper with numpy fallback
+  csrc/sparse_bracket.cpp    pybind11 C++ sparse kernel with OpenMP (optional)
+  data/*.npz                 Precomputed structure constants (5 algebras)
 
-equivariant/            PyTorch equivariant neural network layers
-  sparse_kernel.py        SparseLieBracket, SparseKillingForm (differentiable)
-  layers.py               LieConvLayer, EquivariantLieConvLayer, AdjointLinearLayer
-  model.py                ExceptionalEGNN architecture
-  benchmark.py            Multi-algebra benchmark suite
+equivariant/               PyTorch equivariant neural network layers
+  sparse_kernel.py           SparseLieBracket, SparseKillingForm (differentiable)
+  layers.py                  LieConvLayer, EquivariantLieConvLayer, AdjointLinearLayer
+  model.py                   ExceptionalEGNN architecture
+  benchmark.py               Multi-algebra benchmark suite
+  tests/test_equivariance.py Equivariance, gradients, consistency (8 tests)
 
-exceptional/            Backward-compatible re-exports (delegates to dhl_mm/)
+exceptional/               Backward-compatible re-exports (delegates to dhl_mm/)
+  tests/test_all.py          All 5 algebras: Jacobi, antisymmetry, Killing (7 tests)
+  benchmarks.py              Compression ratio table
 
-examples/               Demo scripts with output plots
-  quantum_sim_demo.py     E8 spin lattice simulation + G2 vs E8 comparison
-  lattice_gauge_demo.py   E8 lattice gauge thermalization + Wilson loops
-  integrators_demo.py     RKMK convergence test + rigid body demo
+tests/                     Test suites
+  test_quantum.py            Quantum simulation: conservation, Trotter accuracy (9 tests)
+  test_lattice.py            Lattice gauge: plaquettes, Metropolis, Wilson loops (7 tests)
+  test_integrators.py        RKMK: convergence order, Killing conservation (7 tests)
+  test_jax_backend.py        JAX: correctness, gradients, vmap, JIT (8 tests)
 
-notebooks/              Interactive demos (Colab-ready)
-  e8_in_5_minutes.ipynb   All 5 algebras, benchmarks, equivariance
-  equivariant_gnn_demo.ipynb  Train an equivariant GNN on synthetic data
+examples/                  Demo scripts with output plots
+  quantum_sim_demo.py        E8 spin lattice simulation + G2 vs E8 comparison
+  lattice_gauge_demo.py      E8 lattice gauge thermalization + Wilson loops
+  integrators_demo.py        RKMK convergence test + rigid body demo
 
-tests/                  Test suites
-  test_quantum.py         Quantum simulation: conservation, Trotter accuracy
-  test_lattice.py         Lattice gauge: plaquettes, Metropolis, Wilson loops
-  test_integrators.py     RKMK: convergence order, Killing conservation
-  test_jax_backend.py     JAX: correctness, gradients, vmap, JIT
+notebooks/                 Interactive demos (Colab-ready)
+  e8_in_5_minutes.ipynb      All 5 algebras, benchmarks, equivariance
+  equivariant_gnn_demo.ipynb Train an equivariant GNN on synthetic data
 
-benchmarks/             Performance benchmarks
-  sparse_kernel_bench.py  C extension vs numpy vs dense, all algebras
+benchmarks/                Performance benchmarks
+  sparse_kernel_bench.py     C extension vs numpy vs dense, all algebras
 
-scripts/                Build utilities
-  precompute.py           Generate .npz structure constant caches
+scripts/                   Build utilities
+  precompute.py              Generate .npz structure constant caches
+
+.github/workflows/         CI/CD
+  ci.yml                     Build, test, benchmark on push (Python 3.10 + 3.12)
+  wheels.yml                 cibuildwheel: prebuilt C extension wheels on release
 ```
 
 ## Running Tests
 
+46+ tests across 6 suites:
+
 ```bash
-python exceptional/tests/test_all.py              # All 5 algebras: Jacobi, antisymmetry, Killing
-python equivariant/tests/test_equivariance.py      # Equivariance, gradients, consistency
-python tests/test_quantum.py                       # Quantum sim: conservation, Trotter accuracy
-python tests/test_lattice.py                       # Lattice gauge: plaquettes, Metropolis
-python tests/test_integrators.py                   # RKMK: convergence order, conservation
-python tests/test_jax_backend.py                   # JAX: correctness, gradients, vmap
+# Core algebra tests
+python exceptional/tests/test_all.py              # All 5 algebras: Jacobi, antisymmetry, Killing (7)
+python test_structure.py                           # E8 structure constants verification
+python test_full_algebra.py                        # E8 full 248-dim algebra
+
+# Module tests
+python equivariant/tests/test_equivariance.py      # Equivariance, gradients, consistency (8)
+python tests/test_quantum.py                       # Quantum sim: conservation, Trotter accuracy (9)
+python tests/test_lattice.py                       # Lattice gauge: plaquettes, Metropolis (7)
+python tests/test_integrators.py                   # RKMK: convergence order, conservation (7)
+python tests/test_jax_backend.py                   # JAX: correctness, gradients, vmap (8)
+
+# Benchmarks
 python equivariant/benchmark.py                    # Sparse vs dense timing, all algebras
 python benchmarks/sparse_kernel_bench.py           # C extension vs numpy vs dense
+
+# Demos (generate plots in examples/)
+python examples/quantum_sim_demo.py                # E8 spin lattice + conservation plots
+python examples/lattice_gauge_demo.py              # Thermalization + Wilson loops
+python examples/integrators_demo.py                # RKMK convergence + rigid body
 ```
 
 ## Applications
@@ -266,11 +319,14 @@ See [APPLICATIONS_ROADMAP.md](APPLICATIONS_ROADMAP.md) for detailed directions.
 
 - Python ≥3.9
 - NumPy ≥1.20
-- PyTorch ≥2.0 (for equivariant layers, optional)
-- JAX ≥0.4 (for JAX backend, optional)
-- SciPy ≥1.10 (for equivariance tests, optional)
-- torch_geometric (for `LieBracketConv`, optional)
-- matplotlib (for demo plots, optional)
+
+Optional:
+- PyTorch ≥2.0 — equivariant layers, differentiable bracket
+- JAX ≥0.4 — JAX backend with JIT and custom_jvp
+- SciPy ≥1.10 — equivariance tests (matrix exponential)
+- torch_geometric — `LieBracketConv` PyG layer
+- pybind11 — build C++ extension from source (993× speedup)
+- matplotlib — demo plots
 
 ## License
 
