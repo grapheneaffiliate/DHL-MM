@@ -1,0 +1,152 @@
+name: CI — Build, Test & Benchmark
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test-and-benchmark:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install numpy pybind11
+          pip install -e .
+
+      - name: Build C extension
+        run: python setup.py build_ext --inplace
+
+      - name: Verify C extension loads
+        run: |
+          python -c "
+          from dhl_mm.csparse import has_c_extension
+          assert has_c_extension(), 'C extension failed to load'
+          print('C extension: OK')
+          "
+
+      # ── Core algebraic tests ──────────────────────────────────
+      - name: Test — Structure constants (antisymmetry, Jacobi, Killing, Cartan)
+        run: python test_structure.py
+
+      - name: Test — Full 248-dim algebra
+        run: python test_full_algebra.py
+
+      - name: Test — All exceptional algebras (G2, F4, E6, E7, E8)
+        run: python exceptional/tests/test_all.py
+
+      - name: Test — Quantum module
+        run: python tests/test_quantum.py
+
+      # ── C extension correctness ───────────────────────────────
+      - name: Test — C extension vs NumPy (bitwise agreement)
+        run: |
+          python -c "
+          import numpy as np
+          from dhl_mm import algebra
+
+          for name in ['G2', 'F4', 'E6', 'E7', 'E8']:
+              alg = algebra(name)
+              dim = alg.dim
+              rng = np.random.RandomState(42)
+              x = rng.randn(dim)
+              y = rng.randn(dim)
+
+              # Sparse bracket via the algebra object (uses C if available)
+              z = alg.bracket(x, y)
+
+              # Manual NumPy reference
+              ref = np.zeros(dim)
+              np.add.at(ref, alg.fK, x[alg.fI] * y[alg.fJ] * alg.fC)
+
+              maxdiff = np.max(np.abs(z - ref))
+              assert maxdiff < 1e-12, f'{name}: max diff {maxdiff:.2e}'
+              print(f'{name} (dim={dim}): bracket correct, max diff = {maxdiff:.2e}')
+
+          print('All algebras: PASS')
+          "
+
+      # ── Benchmarks ────────────────────────────────────────────
+      - name: Benchmark — E8 sparse bracket (Python vs C vs dense)
+        run: |
+          python -c "
+          import numpy as np, time
+
+          from dhl_mm import DHLMM
+          from dhl_mm.csparse import sparse_bracket, has_c_extension
+
+          engine = DHLMM.build()
+          dim = 248
+          rng = np.random.RandomState(0)
+          x = rng.randn(dim)
+          y = rng.randn(dim)
+
+          fI = engine.fI.astype(np.int32)
+          fJ = engine.fJ.astype(np.int32)
+          fK = engine.fK.astype(np.int32)
+          fC = engine.fC.astype(np.float64)
+          gen = engine.gen_array
+
+          N_ITER = 2000
+
+          # 1. Full dense pipeline
+          for _ in range(50):
+              X = np.einsum('i,iab->ab', x, gen)
+              Y = np.einsum('i,iab->ab', y, gen)
+              XY = X @ Y
+              traces = np.einsum('ab,kba->k', XY, gen)
+              z = engine.killing_inv @ traces
+          t0 = time.perf_counter()
+          for _ in range(N_ITER):
+              X = np.einsum('i,iab->ab', x, gen)
+              Y = np.einsum('i,iab->ab', y, gen)
+              XY = X @ Y
+              traces = np.einsum('ab,kba->k', XY, gen)
+              z = engine.killing_inv @ traces
+          t_dense = (time.perf_counter() - t0) / N_ITER * 1e6
+
+          # 2. NumPy sparse
+          for _ in range(50):
+              result = np.zeros(dim)
+              np.add.at(result, fK, x[fI] * y[fJ] * fC)
+          t0 = time.perf_counter()
+          for _ in range(N_ITER):
+              result = np.zeros(dim)
+              np.add.at(result, fK, x[fI] * y[fJ] * fC)
+          t_numpy = (time.perf_counter() - t0) / N_ITER * 1e6
+
+          # 3. C extension
+          for _ in range(50):
+              _ = sparse_bracket(x, y, fI, fJ, fK, fC, dim)
+          t0 = time.perf_counter()
+          for _ in range(N_ITER):
+              _ = sparse_bracket(x, y, fI, fJ, fK, fC, dim)
+          t_c = (time.perf_counter() - t0) / N_ITER * 1e6
+
+          print('=' * 64)
+          print('  DHL-MM E8 BENCHMARK RESULTS')
+          print('=' * 64)
+          print(f'  Structure constants:    {16694:>10,}')
+          print(f'  Operation compression:  {248**3/16694:>10.1f}x')
+          print(f'  Dense pipeline:         {t_dense:>10.1f} us')
+          print(f'  NumPy sparse:           {t_numpy:>10.1f} us')
+          print(f'  C extension:            {t_c:>10.1f} us')
+          print(f'  Speedup (C vs dense):   {t_dense/t_c:>10.0f}x')
+          print(f'  Speedup (C vs numpy):   {t_numpy/t_c:>10.1f}x')
+          print('=' * 64)
+          "
+
+      - name: Benchmark — All exceptional algebras
+        run: python benchmarks/sparse_kernel_bench.py

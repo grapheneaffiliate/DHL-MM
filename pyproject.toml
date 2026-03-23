@@ -7,7 +7,7 @@ name = "dhl-mm"
 version = "0.1.0"
 description = "Up to 913x faster Lie algebra products for all five exceptional algebras with differentiable PyTorch equivariant layers"
 readme = "README.md"
-license = "MIT"
+license = {text = "MIT"}
 requires-python = ">=3.9"
 authors = [
     { name = "Timothy McGirl" },
